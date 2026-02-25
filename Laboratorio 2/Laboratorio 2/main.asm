@@ -29,6 +29,7 @@ Table7seg:
 ; SETUP
 ; ======================================
 rjmp SETUP
+
 SETUP:
 
 LDI ZH, HIGH(Table7seg<<1)
