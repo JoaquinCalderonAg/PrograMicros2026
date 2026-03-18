@@ -5,12 +5,13 @@
 ; Author : Joaquin Calderón
 ; Descripción: Proyecto 1 progra de micros
 
+//0xFFE5
 // 0xC2F7
 /****************************************/
 // Encabezado (Definición de Registros, Variables y Constantes)
 .include "M328PDEF.inc"     // Include definitions specific to ATMega328P
 .equ T2VALUE					= 134
-.equ T1VALUE					= 0xF9E5
+.equ T1VALUE					= 0xC2F7
 .equ T0VALUE					= 240
 .equ Max_Mode					= 5
 .def MODE						= R30
@@ -33,6 +34,11 @@ CONTADOR_DIA:					.byte 1
 DIAS_MAX:						.byte 1
 SELECTOR_DIG:					.byte 1
 REBOTE_FLAG:					.byte 1
+ALARMA_MIN:						.byte 1
+ALARMA_HORA:					.byte 1
+CONTEO_T2:						.byte 1
+ALARMA_ACTIVA:					.byte 1
+ALARMA_SONANDO:					.byte 1
 
 //.org    SRAM_START
 //variable_name:     .byte   1   // Memory alocation for variable_name:     .byte   (byte size)
@@ -92,9 +98,9 @@ STS UCSR0B, R16
 ; CONFIGURAR PORTB
 ; ======================================
 
-LDI R16, 0b00011111							; [0] Digito extremo izquierdo, [1]Digito medio izquierda, [2]Digito medio derecha, [3]Digito extremo derecha, [4]nada, [5]Dos puntos
+LDI R16, 0b00111111							; [0] Digito extremo izquierdo, [1]Digito medio izquierda, [2]Digito medio derecha, [3]Digito extremo derecha, [4]nada, [5]Dos puntos
 OUT DDRB, R16								 
-LDI R16, 0b00100000							; Configuro pullUp y leds apagadas
+LDI R16, 0b00000000							; Configuro pullUp y leds apagadas
 OUT PORTB, R16
 
 ; ======================================
@@ -224,11 +230,19 @@ STS CONTADOR_DIA, R16					   ; Aquí guardo mi contador de DIAS
 CLR R16									   
 STS DIAS_MAX, R16						   ; Aquí guardo el máximo de días según el mes.
 CLR R16									   
-STS SELECTOR_DIG, R16					   ; Aquí guardo el máximo de días según el mes.										    
+STS SELECTOR_DIG, R16					   ; Aquí guardo el selector de dígitos que estoy configurando.										    
 CLR R16									   
-STS REBOTE_FLAG, R16					   ; Aquí guardo el máximo de días según el mes.										    
-										    
-										    
+STS REBOTE_FLAG, R16					   ; Aquí guardo la bandera del antirebote										    
+CLR R16									   
+STS ALARMA_MIN, R16						   ; Aquí guardo el minuto donde sonará la alarma										    
+CLR R16									   
+STS ALARMA_HORA, R16					   ; Aquí guardo la hora donde sonará la alarma		
+CLR R16									   
+STS CONTEO_T2, R16						   ; Aquí guardo el conteo de overflows del timer 2	
+CLR R16									   
+STS ALARMA_ACTIVA, R16					   ; Aquí guardo la bandera de la activación de la alarma	
+CLR R16									   
+STS ALARMA_SONANDO, R16					   ; Aquí guardo la bandera de la alarma sonando				    
 
 											 
 // ACTIVO INTERRUPCIONES GLOBALES
@@ -248,43 +262,52 @@ RCALL INCREMENTO_1S
 
 NO_INC:
 
-; ======================================
-; CONTROL ANTI REBOTE
-; ======================================
-LDS R16, REBOTE_FLAG
-CPI R16,1
-BRNE NO_REBOTE
-
-RCALL DELAY_20MS
-
-CLR R16
-STS REBOTE_FLAG,R16
-
-NO_REBOTE:
 
 CPI		MODE, 0
-BREQ	MUESTRA_RELOJ
+BREQ	SALTO_MUESTRA_RELOJ
 
 CPI		MODE, 1
-BREQ	MUESTRA_FECHA
+BREQ	SALTO_MUESTRA_FECHA
 
 CPI		MODE, 2
-BREQ	CONFI_RELOJ
+BREQ	SALTO_CONFI_RELOJ
 
 CPI		MODE, 3
-BREQ	CONFI_FECHA
+BREQ	SALTO_CONFI_FECHA
 
 CPI		MODE, 4
-BREQ	CONFI_ALARMA
+BREQ	SALTO_CONFI_ALARMA
+RJMP    MAIN_LOOP
 
+SALTO_CONFI_ALARMA:
+RJMP CONFI_ALARMA
 
-    RJMP    MAIN_LOOP
+SALTO_CONFI_FECHA:
+RJMP CONFI_FECHA
+
+SALTO_CONFI_RELOJ:
+RJMP CONFI_RELOJ
+
+SALTO_MUESTRA_FECHA:
+RJMP MUESTRA_FECHA
+
+SALTO_MUESTRA_RELOJ:
+RJMP MUESTRA_RELOJ
+
 ; ======================================
 ; REALIZO LA ACCIÓN DEL CONTEO DE SEGUNDOS
 ; ======================================
 INCREMENTO_1S:
-CPI		BANDERA_SEG, 0x01
-BRNE	FIN_INC
+PUSH R16
+PUSH R17
+PUSH R0
+PUSH ZH
+PUSH ZL
+
+CPI BANDERA_SEG, 0x01
+BRNE FIN_INC
+
+CLR BANDERA_SEG
 
 INC		CONTADOR_SEG
 CPI		CONTADOR_SEG, 60
@@ -295,6 +318,10 @@ INC		CONTADOR_MIN
 CPI		CONTADOR_MIN, 60
 BRNE	FIN_INC
 CLR		CONTADOR_MIN
+
+CLR R16
+STS ALARMA_SONANDO, R16
+
 
 INC		CONTADOR_HORA
 CPI		CONTADOR_HORA, 24
@@ -317,8 +344,46 @@ BRNE	FIN_INC
 CLR		CONTADOR_MES
 
 FIN_INC:
+; =========================
+; DETECTAR ALARMA 
+; =========================
 
-CLR BANDERA_SEG
+LDS R16, ALARMA_HORA
+CPI R16,0
+BRNE CONTINUA_ALARMA
+
+LDS R16, ALARMA_MIN
+CPI R16,0
+BREQ FIN_ALARMA
+
+CONTINUA_ALARMA:
+
+LDS R16, ALARMA_SONANDO
+CPI R16,1
+BREQ FIN_ALARMA
+
+
+LDS R16, ALARMA_HORA							 ; comparar hora
+CP  R16, CONTADOR_HORA							 
+BRNE FIN_ALARMA									 
+												 
+								 
+LDS R16, ALARMA_MIN								 ; comparar minuto
+CP  R16, CONTADOR_MIN							 
+BRNE FIN_ALARMA									 
+												 
+								 
+LDI R16,1										 ; activar alarma
+STS ALARMA_ACTIVA, R16							 
+STS ALARMA_SONANDO, R16							 
+												 
+FIN_ALARMA:
+
+POP ZL
+POP ZH
+POP R0
+POP R17
+POP R16
 RET
 
 
@@ -326,9 +391,6 @@ RET
 ; REALIZO LA ACCIÓN DEL MODO 1, MOSTRAR LA HORA
 ; ======================================
 MUESTRA_RELOJ:
-	
-	CBI PORTC, 0
-	SBI PORTC, 1
 
 	CALL DIV10_IZQUIERDA
 	CALL DIV10_DERECHA
@@ -339,8 +401,6 @@ MUESTRA_RELOJ:
 ; REALIZO LA ACCIÓN DEL MODO 2, MOSTRAR LA FECHA
 ; ======================================
 MUESTRA_FECHA:
-	CBI PORTC, 1
-	SBI PORTC, 0
 
 	CALL DIV10_IZQUIERDA
 	CALL DIV10_DERECHA
@@ -351,8 +411,6 @@ MUESTRA_FECHA:
 ; REALIZO LA ACCIÓN DEL MODO 3,  CONFIGURAR RELOJ
 ; ======================================
 CONFI_RELOJ:
-	CBI PORTC, 0
-	SBI PORTC, 1
 
 	CALL DIV10_IZQUIERDA
 	CALL DIV10_DERECHA
@@ -363,8 +421,6 @@ CONFI_RELOJ:
 ; REALIZO LA ACCIÓN DEL MODO 4, MOSTRAR LA FECHA
 ; ======================================
 CONFI_FECHA:
-	CBI PORTC, 1
-	SBI PORTC, 0
 
 	CALL DIV10_IZQUIERDA
 	CALL DIV10_DERECHA
@@ -376,9 +432,6 @@ CONFI_FECHA:
 ; ======================================
 CONFI_ALARMA:
 
-	SBI PORTC, 1
-	SBI PORTC, 0
-
 	CALL DIV10_IZQUIERDA
 	CALL DIV10_DERECHA
 
@@ -388,19 +441,6 @@ FIN_ISR_CONTADOR:
 /********************************************************************************/
 // NON-Interrupt subroutines
 /********************************************************************************/
-; ======================================
-; DELAY PARA ANTI REBOTE
-; ======================================
-DELAY_20MS:
-LDI R16, 200
-LOOP1:
-LDI R17, 200
-LOOP2:
-DEC R17
-BRNE LOOP2
-DEC R16
-BRNE LOOP1
-RET
 
 
 ; ======================================
@@ -545,13 +585,12 @@ BREQ	DIV_MIN_CONFI
 CPI		R16, 3
 BREQ	DIV_MES_CONFI
 
-
 CPI		R16, 4
-BRNE	SIN_SALTO
+BREQ	SIGO1
+RJMP	FIN_DIV10_DERECHA
+
+SIGO1:
 RJMP	DIV_MIN_ALARMA
-SIN_SALTO:
-
-
 RJMP FIN_DIV10_DERECHA
 
 // DIVISIÓN POR 10 PARA EL APARTADO DE MINUTOS 
@@ -662,7 +701,7 @@ RJMP FIN_DIV10_DERECHA
 
 // DIVISIÓN POR 10 PARA EL APARTADO DE CONFIGURACIÓN DE MINUTOS ALARMA
 DIV_MIN_ALARMA:
-MOV R16, CONTADOR_MIN
+LDS R16, ALARMA_MIN
 CLR R17
 
 DIV_LOOP_ALARMA:
@@ -688,6 +727,7 @@ RJMP FIN_DIV10_DERECHA
 
 
 FIN_DIV10_DERECHA:
+
 POP ZL
 POP ZH
 RET
@@ -712,15 +752,19 @@ CPI		R16, 2
 BREQ	DIV_HORA_CONFI
 
 CPI		R16, 3
-BRNE	NO_SALTO
-RJMP	DIV_DIA_CONFI
-NO_SALTO:
+BREQ	SALTO1
+RJMP	SALTO1_2
+
+SALTO1:
+RJMP DIV_DIA_CONFI
+SALTO1_2:
 
 CPI		R16, 4
-BRNE	NO_SALTO1
-RJMP	DIV_HORA_ALARMA
-NO_SALTO1:
+BREQ	SALTO2
+RJMP	FIN_DIV10_IZQUIERDA
 
+SALTO2:
+RJMP	DIV_HORA_ALARMA
 	RJMP FIN_DIV10_IZQUIERDA
 
 // DIVISIÓN POR 10 PARA EL APARTADO DE HORA
@@ -832,7 +876,7 @@ LPM DIG1,Z
 // DIVISIÓN POR 10 PARA EL APARTADO DE CONFIGURACIÓN DE HORA ALARMA
 
 DIV_HORA_ALARMA:
-MOV R16, CONTADOR_HORA
+LDS R16, ALARMA_HORA
 CLR R17
 
 DIV_LOOP_IZQ_ALARMA:
@@ -879,91 +923,125 @@ MOV  R17, R16								; guardamos este valor para comparar después
 EOR  R16, ESTADO_PREVIO_BOTON				; detectar qué bits cambiaron ya que ESTADO_PREVIO_BOTON tiene el estado inicial de los botones. si cambió entondes es 1.
 
 
-BLOQUE_MODE:
-SBRC R16, 4									; si el bit 3 es 1, significa que ese botón de MODO fue el que se presionó, salto la línea	
-RJMP BLOQUE_CAMBIO_DIG							  
-RJMP BOTON_MODO								  
-											  
-											  
-BLOQUE_CAMBIO_DIG:									  
-SBRC R16, 3									; si el bit 2 es 1, significa que ese botón de CAMBIO DE DÍGITO fue el que se presionó, salto la línea									  
-RJMP BLOQUE_INC
-RJMP BOTON_CAMBIO_DIG						  
-											
-											
-BLOQUE_INC:								  	
-SBRC R16, 6									; si el bit 5 es 1, significa que ese botón de INCREMENTO fue el que se presionó, salto la línea						  
-RJMP BLOQUE_DEC
-RJMP BOTON_INC								  
+SBRS R16, 3									; Si el bit 3 está en 1 significa que se presionó el botón MODO
+RJMP SIGUIENTE1
+RJMP BOTON_MODO	
+							 
+SIGUIENTE1:											 
+SBRS R16, 2									; Si el bit 2 está en 1 significa que se presionó el botón CAMBIO DE DÍGITO 
+RJMP SIGUIENTE2
+RJMP BOTON_CAMBIO_DIG						 
+			
+SIGUIENTE2:								 
+SBRS R16, 5									; Si el bit 5 está en 1 significa que se presionó el botón INCREMENTO
+RJMP SIGUIENTE3
+RJMP BOTON_INC								 
 
-BLOQUE_DEC:										  
-SBRC R16, 5									; si el bit 4 es 1, significa que ese botón de DECREMENTO fue el que se presionó, salto la línea  
-RJMP FIN_ISR
-RJMP BOTON_DEC								  
-											
-											
-											
-											
-											
+SIGUIENTE3:											 
+SBRS R16, 4									; Si el bit 4 está en 1 significa que se presionó el botón DECREMENTO
+RJMP FIN_ISR									 
+RJMP BOTON_DEC							  	 
+											 																																
 											
 // SE PRESIONÓ EL BOTÓN DE MODO									  		
-BOTON_MODO:									
-	LDS R16, REBOTE_FLAG				// 
-	CPI R16,1							// 
-	BRNE SIGAN_VIENDO_1					// 
-	RJMP FIN_ISR						//		ANTI REBOTE
-										// 
-SIGAN_VIENDO_1:							// 
-	LDI R16,1							// 
-	STS REBOTE_FLAG,R16					// 
-									
+BOTON_MODO:		
+LDS R16, ALARMA_ACTIVA
+CPI R16,1
+BRNE CONTINUAR_BOTON_MODO
+
+CLR R16
+STS ALARMA_ACTIVA, R16
+RJMP FIN_ISR
+
+CONTINUAR_BOTON_MODO:
+										
+	SBRS R17, 3								; Si el bit 3 está en 1 significa que dejé de presionar el botón y ya no tengo que hacer nada
+	RJMP CONTINUAR1
+	RJMP FIN_ISR
+	
+CONTINUAR1:	
 	INC MODE								
 											
 	CPI MODE, Max_Mode						
-	BRNE NO_FIN_ISR
+	BREQ CLEAR_MODE
 	RJMP FIN_ISR
 
-NO_FIN_ISR:						
+CLEAR_MODE:						
 	CLR MODE								
 											
 	RJMP FIN_ISR	
 							
 // SE PRESIONÓ EL BOTÓN DE CAMBIO DE DÍGITO											
-BOTON_CAMBIO_DIG:							
-	LDS R16, REBOTE_FLAG				// 
-	CPI R16,1							// 
-	BRNE SIGAN_VIENDO_2					// 
-	RJMP FIN_ISR						//		ANTI REBOTE
-										// 
-SIGAN_VIENDO_2:							// 
-	LDI R16,1							// 
-	STS REBOTE_FLAG,R16					// 
+BOTON_CAMBIO_DIG:	
+LDS R16, ALARMA_ACTIVA
+CPI R16,1
+BRNE CONTINUAR_BOTON_CAMBIO
 
-	PUSH R17
-									
-	LDI R17, 0x01							
-	LDS R16, SELECTOR_DIG					
-	EOR R16, R17							
-	STS SELECTOR_DIG, R16	
+CLR R16
+STS ALARMA_ACTIVA, R16
+RJMP FIN_ISR
+
+CONTINUAR_BOTON_CAMBIO:
+
+
+	SBRS R17, 2								; Si el bit 2 está en 1 significa que dejé de presionar el botón y ya no tengo que hacer nada
+	RJMP CONTINUAR2
+	RJMP FIN_ISR
 	
-	POP R17				
+CONTINUAR2:		
+	CPI MODE,0
+	BREQ SALTO_FIN_ISR
+
+	CPI MODE,1
+	BREQ SALTO_FIN_ISR
+
+	CPI MODE,2
+	BREQ CAMBIO_DIGITO
+
+	CPI MODE,3
+	BREQ CAMBIO_DIGITO
+
+	CPI MODE,4
+	BREQ CAMBIO_DIGITO
+	RJMP FIN_ISR	
+					
+SALTO_FIN_ISR:
+RJMP FIN_ISR
+	
+CAMBIO_DIGITO:		
+
+	LDS R16, SELECTOR_DIG
+	LDI ACTION, 1
+	EOR R16, ACTION
+	STS SELECTOR_DIG, R16
+	
+					
 	RJMP FIN_ISR							
 
 // SE PRESIONÓ EL BOTÓN DE INCREMENTO											
-BOTON_INC:	
-	LDS R16, REBOTE_FLAG				//
-	CPI R16,1							//
-	BREQ FIN_ISR						//		ANTI REBOTE
-										//
-	LDI R16,1							//
-	STS REBOTE_FLAG,R16					//
+BOTON_INC:
+LDS R16, ALARMA_ACTIVA
+CPI R16,1
+BRNE CONTINUAR_BOTON_INC
 
+CLR R16
+STS ALARMA_ACTIVA, R16
+RJMP FIN_ISR
+
+CONTINUAR_BOTON_INC:
+	
+
+	SBRS R17, 5								; Si el bit 5 está en 1 significa que dejé de presionar el botón y ya no tengo que hacer nada
+	RJMP CONTINUAR3
+	RJMP FIN_ISR
+	
+CONTINUAR3:
 							
 	CPI MODE,0
-	BREQ FIN_ISR
+	BREQ SALTO_FIN_ISR
 
 	CPI MODE,1
-	BREQ FIN_ISR
+	BREQ SALTO_FIN_ISR
 
 	CPI MODE,2
 	BREQ INC_RELOJ
@@ -981,41 +1059,101 @@ INC_RELOJ:
 	BREQ INC_MIN_RELOJ
 
 	INC CONTADOR_HORA
-	CPI CONTADOR_HORA,24
-	BRNE FIN_ISR
+	CPI CONTADOR_HORA,25
+	BRNE SALTO_FIN_ISR
 	CLR CONTADOR_HORA
 	RJMP FIN_ISR
 	
 	INC_MIN_RELOJ:
 	INC CONTADOR_MIN
 	CPI CONTADOR_MIN,60
-	BRNE FIN_ISR
+	BRNE SALTO_FIN_ISR
 	CLR CONTADOR_MIN
 	
 	RJMP FIN_ISR
 
 INC_FECHA:
+	LDS R16, SELECTOR_DIG
+	CPI R16,0								; Si el selector es 0 entonces configuramos los dígitos de la derecha
+	BREQ INC_MES_FECHA
+
+	LDS ACTION, DIAS_MAX
+
+	LDS R16, CONTADOR_DIA
+	INC R16
+	CPI R16, 32
+	BRNE FIN_INC_FECHA
+	LDI R16,1
+	STS CONTADOR_DIA, R16
+	RJMP FIN_ISR
 	
+	INC_MES_FECHA:
+	INC CONTADOR_MES
+	CPI CONTADOR_MES,12
+	BRNE SALTO_FIN_ISR
+	LDI CONTADOR_MES, 0
+	RJMP FIN_ISR
+	
+FIN_INC_FECHA:
+	STS CONTADOR_DIA, R16
 	RJMP FIN_ISR
 
 INC_ALARMA:
+	LDS R16, SELECTOR_DIG
+	CPI R16,0								; Si el selector es 0 entonces configuramos los dígitos de la derecha
+	BREQ INC_MIN_ALARMA
+
+	LDS R16, ALARMA_HORA
+	INC R16
+	CPI R16,24
+	BRNE FIN_INC_HORA
+
+	CLR R16
+	STS ALARMA_HORA, R16
+	RJMP FIN_ISR
 	
+	INC_MIN_ALARMA:
+	LDS R16, ALARMA_MIN
+	INC R16
+	CPI R16,60
+	BRNE FIN_INC_MIN
+
+	CLR R16
+	STS ALARMA_MIN, R16
+	RJMP FIN_ISR
+
+	FIN_INC_HORA:
+	STS ALARMA_HORA, R16
+	RJMP FIN_ISR
+
+	FIN_INC_MIN:
+	STS ALARMA_MIN, R16
 	RJMP FIN_ISR
 
 // SE PRESIONÓ EL BOTÓN DE DECREMENTO
 BOTON_DEC:
-	LDS R16, REBOTE_FLAG				// 
-	CPI R16,1							// 
-	BREQ FIN_ISR						//		ANTI REBOTE
-										// 
-	LDI R16,1							// 
-	STS REBOTE_FLAG,R16					// 
+LDS R16, ALARMA_ACTIVA
+CPI R16,1
+BRNE CONTINUAR_BOTON_DEC
+
+CLR R16
+STS ALARMA_ACTIVA, R16
+RJMP FIN_ISR
+
+CONTINUAR_BOTON_DEC:
+
+
+	SBRS R17, 4								; Si el bit 4 está en 1 significa que dejé de presionar el botón y ya no tengo que hacer nada
+	RJMP CONTINUAR4
+	RJMP FIN_ISR
+	
+CONTINUAR4:
 
 	CPI MODE,0
-	BREQ FIN_ISR
+	BREQ SALTO_FIN_ISR2
 
 	CPI MODE,1
-	BREQ FIN_ISR
+	BREQ SALTO_FIN_ISR2
 
 	CPI MODE,2
 	BREQ DEC_RELOJ
@@ -1027,30 +1165,87 @@ BOTON_DEC:
 	BREQ DEC_ALARMA
 	RJMP FIN_ISR
 
+SALTO_FIN_ISR2:
+RJMP FIN_ISR
+
 DEC_RELOJ:
 	LDS R16, SELECTOR_DIG
 	CPI R16,0								; Si el selector es 0 entonces configuramos los dígitos de la derecha
 	BREQ DEC_MIN_RELOJ
 
 	DEC CONTADOR_HORA
-	BRPL FIN_ISR
-	LDI CONTADOR_HORA,23
-	RJMP FIN_ISR
+	CPI CONTADOR_HORA, 0xFF
+	BRNE FIN_ISR
+	LDI CONTADOR_HORA, 23
 	
 	DEC_MIN_RELOJ:
 	DEC CONTADOR_MIN
-	CPI CONTADOR_MIN,60
+	CPI CONTADOR_MIN,0xFF
 	BRNE FIN_ISR
-	CLR CONTADOR_MIN
+	LDI CONTADOR_MIN, 59
 	
 	RJMP FIN_ISR
 
 DEC_FECHA:
-	
+	LDS R16, SELECTOR_DIG
+	CPI R16,0								; Si el selector es 0 entonces configuramos los dígitos de la derecha
+	BREQ DEC_MES_FECHA
+
+
+	LDS R16, CONTADOR_DIA
+	DEC R16
+	CPI R16, 0
+	BRNE FIN_DEC_FECHA
+	LDI R16, 31
+	STS CONTADOR_DIA, R16
 	RJMP FIN_ISR
+	
+	DEC_MES_FECHA:
+	DEC CONTADOR_MES
+	CPI CONTADOR_MES, 0xFF
+	BRNE FIN_ISR
+	LDI CONTADOR_MES, 11
+	RJMP FIN_ISR
+	
+FIN_DEC_FECHA:
+	STS CONTADOR_DIA, R16
+	RJMP FIN_ISR
+	
 
 DEC_ALARMA:
 	
+	LDS R16, SELECTOR_DIG
+	CPI R16,0								; Si el selector es 0 entonces configuramos los dígitos de la derecha
+	BREQ DEC_MIN_ALARMA
+
+	LDS R16, ALARMA_HORA
+	DEC R16
+	CPI R16,0xFF
+	BRNE FIN_DEC_HORA
+
+	LDI R16, 23
+	STS ALARMA_HORA, R16
+	RJMP FIN_ISR
+	
+	DEC_MIN_ALARMA:
+	LDS R16, ALARMA_MIN
+	DEC R16
+	CPI R16,0xFF
+	BRNE FIN_DEC_MIN
+
+	LDI R16, 59
+	STS ALARMA_MIN, R16
+	RJMP FIN_ISR
+
+	FIN_DEC_HORA:
+	STS ALARMA_HORA, R16
+	RJMP FIN_ISR
+
+	FIN_DEC_MIN:
+	STS ALARMA_MIN, R16
+	RJMP FIN_ISR
+
+
 	RJMP FIN_ISR
 
 FIN_ISR:
@@ -1071,10 +1266,80 @@ PUSH R16
 PUSH R17
 IN   R16, SREG
 PUSH R16
+	LDI R16, (1<<TOV2)									; limpiar bandera overflow
+	OUT TIFR2, R16
+	
+	LDS R16, ALARMA_ACTIVA
+	CPI R16,1
+	BRNE CONTINUAR_NORMAL
+	
+; =========================
+; ALARMA ACTIVA
+; =========================
+	
+	SBI PINC,0											; parpadeo fecha 
+	SBI PINC,1											; parpadeo hora 
+	
+	RJMP FIN_T2
+	
+	CONTINUAR_NORMAL:
 
-LDI R16, T2VALUE									; Empieza a contar desde T2VALUE
-STS TCNT2, R16
+	LDI R16, T2VALUE									; Empieza a contar desde T2VALUE
+	STS TCNT2, R16
+	
+	LDS R16, CONTEO_T2
+	INC R16
+	STS CONTEO_T2, R16
 
+	CPI R16, 5
+	BRNE FIN_T2
+	CLR R16
+	STS CONTEO_T2, R16
+	SBI PINB, 5
+
+	CPI MODE,0
+	BREQ SIN_PARPADEAR0
+
+	CPI MODE,1
+	BREQ SIN_PARPADEAR1
+
+	CPI MODE,2
+	BREQ PARPADEO_HORA
+	
+	CPI MODE,3
+	BREQ PARPADEO_FECHA
+
+	CPI MODE,4
+	BREQ SIN_PARPADEAR3
+	
+	RJMP FIN_T2
+	
+	PARPADEO_HORA:
+	CBI PORTC, 0
+	SBI PINC,1
+	RJMP FIN_T2
+	
+	PARPADEO_FECHA:
+	CBI PORTC, 1
+	SBI PINC,0
+	RJMP FIN_T2
+	
+	SIN_PARPADEAR0:
+	CBI PORTC, 0
+	SBI PORTC, 1
+	RJMP FIN_T2
+
+	SIN_PARPADEAR1:
+	CBI PORTC, 1
+	SBI PORTC, 0
+	RJMP FIN_T2
+
+	SIN_PARPADEAR3:
+	SBI PORTC, 1
+	SBI PORTC, 0
+
+
+FIN_T2:
 
 
 POP  R16
@@ -1120,9 +1385,6 @@ PUSH R16
 LDI R16, T0VALUE									; Empieza a contar desde T0VALUE
 OUT TCNT0, R16
 
-LDI R16,(1<<PB5)									; apagar dígitos
-OUT PORTB,R16
-
 ; avanzar dígito
 INC DIGITO_ACTIVO
 CPI DIGITO_ACTIVO,4
@@ -1130,8 +1392,6 @@ BRLO SIGAN_VIENDO									; Salta si es menor que 4
 CLR DIGITO_ACTIVO
 
 SIGAN_VIENDO:
-LDI R16,0
-OUT PORTB,R16
 
 CPI DIGITO_ACTIVO,0
 BREQ MOSTRAR0
@@ -1145,39 +1405,55 @@ BREQ MOSTRAR2
 RJMP MOSTRAR3
 
 MOSTRAR0:
-LDI R16,0
-OUT PORTB,R16
+IN R16, PORTB
+ANDI R16, (1<<PB5)								; conservo PB5
+OUT PORTB, R16
 
 OUT PORTD,DIG0
-LDI R16,(1<<PB0)
-OUT PORTB,R16
+
+IN R16, PORTB
+ANDI R16, (1<<PB5)   
+ORI R16, (1<<PB0)								; encender dígito
+OUT PORTB, R16
+
 RJMP FIN_MUX
 
 MOSTRAR1:
-LDI R16,0
-OUT PORTB,R16
+IN R16, PORTB
+ANDI R16, (1<<PB5)								; conservo PB5
+OUT PORTB, R16
 
 OUT PORTD,DIG1
-LDI R16,(1<<PB1)
-OUT PORTB,R16
+
+ANDI R16, (1<<PB5)   
+ORI R16, (1<<PB1)								; encender dígito
+OUT PORTB, R16
+
 RJMP FIN_MUX
 
 MOSTRAR2:
-LDI R16,0
-OUT PORTB,R16
+IN R16, PORTB
+ANDI R16, (1<<PB5)								; conservo PB5
+OUT PORTB, R16
 
 OUT PORTD,DIG2
-LDI R16,(1<<PB2)
-OUT PORTB,R16
+
+ANDI R16, (1<<PB5)   
+ORI R16, (1<<PB2)								; encender dígito
+OUT PORTB, R16
+
 RJMP FIN_MUX
 
 MOSTRAR3:
-LDI R16,0
-OUT PORTB,R16
+IN R16, PORTB
+ANDI R16, (1<<PB5)								; conservo PB5
+OUT PORTB, R16
 
 OUT PORTD,DIG3
-LDI R16,(1<<PB3)
-OUT PORTB,R16
+
+ANDI R16, (1<<PB5)  
+ORI R16, (1<<PB3)								; encender dígito
+OUT PORTB, R16
 
 FIN_MUX:
 
