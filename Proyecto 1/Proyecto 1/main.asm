@@ -438,10 +438,11 @@ CONFI_ALARMA:
 FIN_ISR_CONTADOR:
 //CLR BANDERA_SEG
 	RJMP MAIN_LOOP
+
+
 /********************************************************************************/
 // NON-Interrupt subroutines
 /********************************************************************************/
-
 
 ; ======================================
 ; Sub rutina Setear mi tabla7seg en 0
@@ -1059,7 +1060,7 @@ INC_RELOJ:
 	BREQ INC_MIN_RELOJ
 
 	INC CONTADOR_HORA
-	CPI CONTADOR_HORA,25
+	CPI CONTADOR_HORA,24
 	BRNE SALTO_FIN_ISR
 	CLR CONTADOR_HORA
 	RJMP FIN_ISR

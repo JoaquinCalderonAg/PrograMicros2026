@@ -105,7 +105,7 @@ RJMP WAIT_OVF
 ; Luego del overflow tengo que borrar la bandera
 LDI R17, (1<<TOV0)
 OUT TIFR0, R17
-
+	
 INC R21
 CPI R21, 6                   ; aquí dejo que el timer cuente cada 100ms
 BRNE MAIN_LOOP
