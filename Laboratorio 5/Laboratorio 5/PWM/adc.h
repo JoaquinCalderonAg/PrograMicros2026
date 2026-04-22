@@ -5,8 +5,8 @@
  *  Author: Joaquín Calderón
  */ 
 
-#ifndef LIBRERIA_ADC_H
-#define LIBRERIA_ADC_H
+#ifndef adc_H
+#define adc_H
 
 #include <stdint.h>
 

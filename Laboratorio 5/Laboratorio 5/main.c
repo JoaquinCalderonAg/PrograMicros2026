@@ -8,47 +8,67 @@
 #include <avr/io.h>
 #include <avr/interrupt.h>
 #include <stdint.h>
+#include "PWM/PWMT1.h"
 #include "PWM/adc.h"
-#include "PWM/pwm.h"
+#include "PWM/PWMT2.h"
 
-// ======================================
+
 // VARIABLES GLOBALES
-// ======================================
-volatile uint8_t Canal_Actual = 0;
-static uint8_t Pin_PWM = PD3;
+volatile uint8_t adc_Actual = 0;
 
-// ======================================
+
 // PROTOTIPOS
-// ======================================
 void init_timer0(void);
-void init_Timer2(void);
-void timer2_set_pwm(uint8_t duty);
 
-// ======================================
+
 // MAIN
-// ======================================
 int main(void)
 {
     cli();
 
-    setup_adc();               // ADC
-    init_timer0();             // Trigger ADC
-    init_timer1();             // PWM servos
-    init_Timer2();  // PWM LED
+    setup_adc();          
+    init_timer0();        
+    init_timer1();        
+    init_timer2_all();    
 
     sei();
 
     while (1)
     {
-        // Todo ocurre en interrupciones
+        
     }
 
     return 0;
 }
 
-// ======================================
-// TIMER0 - DISPARA ADC
-// ======================================
+// ISR ADC (3 CANALES)
+ISR(ADC_vect)
+{
+    uint8_t lectura = ADCH;
+
+    switch (adc_Actual)
+    {
+        case 0:
+            TIMER1_PWM1_set_servo_PW(lectura); 
+            adc_Actual = 1;
+            adc_set_channel(1);
+            break;
+
+        case 1:
+            timer2_set_servo2(lectura);        
+            adc_Actual = 2;
+            adc_set_channel(2);
+            break;
+
+        case 2:
+            timer2_set_led(lectura);           
+            adc_Actual = 0;
+            adc_set_channel(0);
+            break;
+    }
+}
+
+// TIMER0 - ADC
 void init_timer0(void)
 {
     TCCR0A = 0;
@@ -63,83 +83,10 @@ void init_timer0(void)
     TIMSK0 |= (1 << TOIE0);
 }
 
-// ======================================
-// TIMER2 - PWM MANUAL LED
-// ======================================
-void init_Timer2(void)
-{
-    TCCR2A = 0;
-    TCCR2B = 0;
-
-    // Prescaler 8
-    TCCR2B |= (1 << CS21);
-
-    // Interrupciones
-    TIMSK2 |= (1 << TOIE2) | (1 << OCIE2A);
-
-    // PD3 salida
-    DDRD |= (1 << Pin_PWM);
-
-    PORTD &= ~(1 << Pin_PWM);
-
-    OCR2A = 0;
-}
-
-void timer2_set_pwm(uint8_t duty)
-{
-    OCR2A = duty;
-}
-
-// ======================================
 // ISR TIMER0
-// ======================================
 ISR(TIMER0_OVF_vect)
 {
     TCNT0 = 0;
     ADCSRA |= (1 << ADSC);
 }
 
-// ======================================
-// ISR ADC (3 CANALES)
-// ======================================
-ISR(ADC_vect)
-{
-    uint8_t lectura = ADCH;
-
-    switch (Canal_Actual)
-    {
-        case 0:
-            Set_Servo_T1(lectura);
-            Canal_Actual = 1;
-            adc_set_channel(1);
-            break;
-
-        case 1:
-            Set_Servo2_T1(lectura);
-            Canal_Actual = 2;
-            adc_set_channel(2);
-            break;
-
-        case 2:
-            timer2_set_pwm(lectura);
-            Canal_Actual = 0;
-            adc_set_channel(0);
-            break;
-    }
-}
-
-// ======================================
-// TIMER2 - INICIO PWM
-// ======================================
-ISR(TIMER2_OVF_vect)
-{
-    PORTD |= (1 << Pin_PWM);
-}
-
-// ======================================
-// TIMER2 - FIN PWM
-// ======================================
-ISR(TIMER2_COMPA_vect)
-{
-    PORTD &= ~(1 << Pin_PWM);
-}

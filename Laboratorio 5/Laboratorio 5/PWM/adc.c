@@ -1,5 +1,5 @@
 /*
- * CFile1.c
+ * adc.c
  *
  * Created: 4/14/2026 1:27:38 PM
  *  Author: Joaquín Calderón
@@ -26,4 +26,4 @@ void adc_set_channel(uint8_t channel)
 {
 	channel &= 0x07;
 	ADMUX = (ADMUX & 0xF8) | channel;
-}
+	}
